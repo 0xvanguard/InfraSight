@@ -1,0 +1,21 @@
+[project]
+name = "infrasight-backend"
+version = "0.1.0"
+description = "API de InfraSight: ingesta de métricas y consulta para el dashboard"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.111",
+    "uvicorn[standard]>=0.30",
+    "asyncpg>=0.29",
+    "pydantic>=2.7",
+    "pydantic-settings>=2.3",
+    "python-ulid>=2.7",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["app*"]

@@ -1,36 +1,58 @@
-import os
-from fastapi import FastAPI
-from app.database import Base, engine
-from app.api.endpoints import router as metrics_router
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
-from fastapi.middleware.cors import CORSMiddleware
+"""Punto de entrada de la API de InfraSight."""
 
-# Crear tablas locales SQLite (MVP)
-Base.metadata.create_all(bind=engine)
+from __future__ import annotations
+
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+
+from .config import settings
+from .db import close_pool, init_pool
+from .routers import ingest, query
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    await init_pool()
+    yield
+    await close_pool()
+
 
 app = FastAPI(
-    title="InfraSight API", 
-    version="1.0.0",
-    description="Remote Monitoring & Endpoint Intelligence Backend"
+    title="InfraSight API",
+    description=(
+        "API de ingesta y consulta de InfraSight. Versión M1: walking "
+        "skeleton con endpoints de enrolamiento, heartbeat, métricas y "
+        "consulta de dispositivos."
+    ),
+    version="0.1.0",
+    lifespan=lifespan,
 )
 
-# CORS para Dashboards Desacoplados
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
+    allow_origins=[settings.cors_allow_origin],
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["*"],
 )
 
-# Montar Rutas API
-app.include_router(metrics_router, prefix="/api/v1")
 
-# Montar Dashboard Estático
-os.makedirs("app/static", exist_ok=True)
-app.mount("/static", StaticFiles(directory="app/static"), name="static")
+@app.get("/healthz", tags=["health"])
+async def healthz() -> dict[str, str]:
+    """Sonda de liveness simple. La revisa el healthcheck de compose."""
+    return {"status": "ok"}
 
-@app.get("/", tags=["frontend"])
-def read_dashboard():
-    return FileResponse("app/static/index.html")
+
+@app.exception_handler(ValueError)
+async def value_error_handler(request: Request, exc: ValueError) -> JSONResponse:
+    return JSONResponse(
+        status_code=400,
+        content={"error": "bad_request", "message": str(exc)},
+    )
+
+
+app.include_router(ingest.router)
+app.include_router(query.router)

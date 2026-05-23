@@ -1,0 +1,21 @@
+# Configuración del agente de InfraSight.
+# En producción se instala en /etc/infrasight/agent.toml (modo 0600).
+#
+# Las variables de entorno con prefijo INFRASIGHT_ tienen prioridad sobre
+# los valores de este fichero — útil para desarrollo y para Docker.
+
+api_url = "https://infrasight.example.com"
+enrollment_token = "pega-aqui-el-token-emitido-por-el-dashboard"
+
+# Identificadores opcionales. Si no se rellenan, el agente los detecta
+# automáticamente al arrancar.
+hostname = ""
+machine_id = ""
+
+# Intervalos en segundos. El backend puede sobrescribirlos en cada
+# heartbeat — estos valores son solo el bootstrap.
+collect_interval_s = 30
+heartbeat_interval_s = 60
+
+# Ruta donde el agente persiste el device_token tras enrolarse.
+state_path = "/var/lib/infrasight/agent.state"

@@ -1,0 +1,88 @@
+# =============================================================================
+# Stack de InfraSight - M1 (walking skeleton)
+#
+# Servicios:
+#   - db        TimescaleDB (PostgreSQL 16 con la extensión Timescale)
+#   - backend   API FastAPI (ingesta + consulta)
+#   - dashboard UI Next.js
+#   - agent     Agente Python de demo, reporta métricas reales del contenedor
+#
+# Notas:
+#   - En producción el agente NO se despliega en compose: se instala en cada
+#     host a monitorizar. El servicio `agent` aquí es para validar el pipeline
+#     en local con `docker compose up`.
+#   - Las imágenes se construyen desde el repo. No hay imágenes publicadas
+#     todavía — eso llega en M4.
+# =============================================================================
+
+services:
+  db:
+    image: timescale/timescaledb:latest-pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - db_data:/var/lib/postgresql/data
+      - ./db:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    ports:
+      # Expuesto en local para depuración con psql; comentar en producción.
+      - "5432:5432"
+
+  backend:
+    build:
+      context: ../../backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      ENROLLMENT_TOKEN: ${ENROLLMENT_TOKEN}
+      CORS_ALLOW_ORIGIN: ${CORS_ALLOW_ORIGIN}
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/healthz').status==200 else 1)"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+
+  dashboard:
+    build:
+      context: ../../dashboard
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
+    restart: unless-stopped
+    environment:
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
+    depends_on:
+      - backend
+    ports:
+      - "3000:3000"
+
+  agent:
+    build:
+      context: ../../agent
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      INFRASIGHT_API_URL: ${AGENT_API_URL}
+      INFRASIGHT_ENROLLMENT_TOKEN: ${ENROLLMENT_TOKEN}
+      INFRASIGHT_HOSTNAME: ${AGENT_HOSTNAME}
+      INFRASIGHT_COLLECT_INTERVAL_S: ${AGENT_COLLECT_INTERVAL_S}
+      INFRASIGHT_HEARTBEAT_INTERVAL_S: ${AGENT_HEARTBEAT_INTERVAL_S}
+    depends_on:
+      backend:
+        condition: service_healthy
+
+volumes:
+  db_data:
