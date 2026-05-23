@@ -9,8 +9,10 @@ agente ligero, las muestra en un panel web, levanta alertas técnicas basadas
 en umbrales y registra informes de intervención — pensada para equipos de TI
 y MSPs que dan soporte a parques distribuidos.
 
-**Estado:** Pre-alpha. Solo especificaciones y esqueletos — todavía no hay
-servicios ejecutables.
+**Estado:** Pre-alpha (M1 - walking skeleton). El stack levanta de extremo
+a extremo con `docker compose up`, el agente envía métricas reales y el
+dashboard las muestra. Las funcionalidades de alertas, intervenciones y
+auth de operadores llegan en milestones posteriores.
 
 ---
 
@@ -96,34 +98,66 @@ InfraSight/
 Hoy solo existen `docs/` y `README.md`. Los esqueletos de código llegan en
 PRs posteriores.
 
-## Quickstart
+## Quickstart (M1)
 
-> El stack todavía no es ejecutable. Esta sección es un placeholder para
-> fijar la experiencia de desarrollador hacia la que vamos.
+Requisitos: Docker y `docker compose` v2. Probado en Linux.
 
 ```bash
-# 1. Levantar Postgres/TimescaleDB, la API y el dashboard
+# 1. Configurar variables de entorno
 cd deploy/compose
 cp .env.example .env
-docker compose up -d
+# Edita .env y cambia POSTGRES_PASSWORD y ENROLLMENT_TOKEN.
 
-# 2. Abrir el dashboard
-open http://localhost:3000
+# 2. Levantar el stack completo (db + backend + dashboard + agente demo)
+docker compose up -d --build
 
-# 3. Dar de alta un endpoint (ejecutar en la máquina a monitorizar)
-curl -fsSL https://<tu-host>/install.sh | sudo bash -s -- \
-  --api-url https://<tu-host>/api \
-  --enroll-token <token-del-dashboard>
+# 3. Comprobar que todo arranca
+docker compose ps
+docker compose logs -f agent          # debería mostrar "Enrolado correctamente"
+                                       # y "Enviadas N muestras de métricas"
+
+# 4. Abrir el dashboard
+xdg-open http://localhost:3000        # Linux
+# o simplemente: navegar manualmente a http://localhost:3000
+```
+
+A los pocos segundos verás un dispositivo `demo-endpoint` en el listado.
+Pulsa sobre él para ver sus últimas métricas (CPU, memoria, disco, red,
+uptime).
+
+**Limpiar todo:**
+
+```bash
+docker compose down -v   # -v borra también el volumen de Postgres
+```
+
+### Cómo correr el agente fuera de Docker
+
+En producción el agente se instala en cada host monitorizado, no como
+contenedor. Para probarlo en local sin Docker:
+
+```bash
+cd agent
+pip install -e .
+
+export INFRASIGHT_API_URL=http://localhost:8000
+export INFRASIGHT_ENROLLMENT_TOKEN=enrol-demo-cambia-esto   # el de tu .env
+export INFRASIGHT_HOSTNAME=mi-laptop
+export INFRASIGHT_STATE_PATH=./agent.state                  # estado local
+
+python -m infrasight_agent
 ```
 
 ## Roadmap
 
-- **M0 — Especificaciones (este PR)** — README + arquitectura + protocolo
-  del agente.
-- **M1 — Walking skeleton** — el stack Compose levanta; el agente envía una
-  métrica hardcodeada; el dashboard muestra un dispositivo.
-- **M2 — Métricas reales** — todos los colectores de v1, hypertables,
-  gráficas con rangos temporales.
+- **M0 — Especificaciones** ✅ — README + arquitectura + protocolo del
+  agente.
+- **M1 — Walking skeleton** ✅ — el stack Compose levanta; el agente envía
+  métricas reales (CPU, memoria, disco, red, uptime) y el dashboard
+  muestra los dispositivos con sus últimas mediciones.
+- **M2 — Gráficas y rangos temporales** — gráficas con Recharts, queries
+  con `from`/`to`, continuous aggregates en Timescale, métricas adicionales
+  (load5/15, swap, E/S de disco).
 - **M3 — Alertas e intervenciones** — reglas de umbral, webhooks, flujo de
   informe de intervención.
 - **M4 — Hardening** — auth, tokens de enrolamiento, auto-update del

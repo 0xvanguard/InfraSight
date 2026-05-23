@@ -1,0 +1,25 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html,
+body {
+  background-color: rgb(15 17 22);
+  color: rgb(229 231 235);
+}
+
+body {
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+}
+
+a {
+  color: rgb(99 179 237);
+}
+a:hover {
+  text-decoration: underline;
+}
+
+table {
+  border-collapse: collapse;
+}
