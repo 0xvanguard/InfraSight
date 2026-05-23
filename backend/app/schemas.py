@@ -86,6 +86,47 @@ class DeviceDetail(DeviceSummary):
 
 
 # -----------------------------------------------------------------------------
+# Series temporales (M2).
+# -----------------------------------------------------------------------------
+class MetricSeriesPoint(BaseModel):
+    """Un punto de una serie temporal ya bucketeada.
+
+    `avg`/`min`/`max` son None cuando el bucket no tiene muestras (gap fill).
+    """
+
+    ts: datetime
+    avg: float | None = None
+    min: float | None = None
+    max: float | None = None
+    samples: int = 0
+
+
+class MetricSeries(BaseModel):
+    """Serie de un único `(metric, labels)`.
+
+    Las labels se mantienen como dict para que el dashboard pueda derivar
+    el nombre legible (`mountpoint=/`, `iface=eth0`, etc.).
+    """
+
+    metric: str
+    labels: dict[str, Any] = Field(default_factory=dict)
+    points: list[MetricSeriesPoint]
+
+
+class MetricSeriesResponse(BaseModel):
+    """Sobre que envuelve la respuesta de /v1/devices/{id}/series."""
+
+    device_id: UUID
+    from_: datetime = Field(alias="from", serialization_alias="from")
+    to: datetime
+    interval_s: int
+    source: str  # 'metrics' | 'metrics_1m' | 'metrics_1h'
+    series: list[MetricSeries]
+
+    model_config = {"populate_by_name": True}
+
+
+# -----------------------------------------------------------------------------
 # Errores estructurados.
 # -----------------------------------------------------------------------------
 class ErrorResponse(BaseModel):
