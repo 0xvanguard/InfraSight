@@ -92,8 +92,9 @@ App FastAPI dividida en routers:
 - `query/` — orientado al dashboard, autenticado por sesión:
   - `GET /v1/devices` — listado del parque
   - `GET /v1/devices/{id}` — detalle del dispositivo + métricas recientes
-  - `GET /v1/devices/{id}/metrics?from=&to=&series=` — consulta de series
-    temporales
+  - `GET /v1/devices/{id}/series?metric=&range=&from=&to=&interval=` —
+    series temporales con resolución adaptativa (ver §3.3); soporta
+    múltiples métricas en una sola petición (`?metric=x&metric=y`).
   - `GET /v1/alerts`, `POST /v1/alerts/{id}/ack`, `POST /v1/alerts/{id}/close`
   - `POST /v1/interventions` — crear un informe de intervención
 - `admin/` — gestión de orgs/usuarios, CRUD de reglas de alerta,
@@ -224,10 +225,39 @@ CREATE INDEX ON metrics (org_id, ts DESC);
 Políticas de retención y compresión (valores por defecto, ajustables por
 despliegue):
 
-- **Compresión:** los chunks de más de 7 días se comprimen.
-- **Retención:** los datos en crudo se descartan tras 90 días.
-- **Continuous aggregates:** rollups a 1 minuto y 1 hora para consultas de
-  gráficas que abarquen días/semanas.
+- **Compresión:** los chunks de más de 7 días se comprimen, segmentando
+  por `(device_id, metric)` para que las consultas filtradas por una
+  métrica concreta puedan saltarse el resto.
+- **Retención:** los datos en crudo se descartan tras 90 días. Los
+  agregados continuos sobreviven y siguen siendo consultables.
+- **Continuous aggregates jerárquicos:**
+  - `metrics_1m` materializa `AVG/MIN/MAX/COUNT` por bucket de 1 minuto
+    a partir de la hypertable raw, refrescándose cada minuto y dejando
+    el último minuto fuera (puede estar incompleto).
+  - `metrics_1h` se construye **a partir de `metrics_1m`** (no de la
+    hypertable raw), refrescándose cada 15 minutos. Esto reduce
+    drásticamente el coste de mantenimiento al evitar reescanear los
+    chunks raw para cada rollup horario.
+
+### 3.3 Resolución adaptativa de consultas
+
+El endpoint `GET /v1/devices/{id}/series` elige automáticamente la fuente
+de datos más eficiente según el rango temporal pedido, manteniendo entre
+~120 y 720 puntos por gráfica para que el dashboard no malgaste ancho de
+banda ni CPU del navegador:
+
+| Rango     | Fuente        | Tamaño de bucket |
+|-----------|---------------|------------------|
+| ≤ 1 h     | `metrics`     | 10 s             |
+| ≤ 6 h     | `metrics`     | 30 s             |
+| ≤ 24 h    | `metrics_1m`  | 1 min            |
+| ≤ 7 días  | `metrics_1m`  | 5 min (re-bucketeado) |
+| > 7 días  | `metrics_1h`  | 1 hora           |
+
+Las consultas usan `time_bucket_gapfill()` para devolver buckets sin datos
+como `NULL`, lo que permite a las gráficas dibujar huecos reales en lugar
+de interpolar valores que no existen (un endpoint apagado debe verse como
+un hueco, no como una línea recta).
 
 El nombrado de métricas sigue una convención dotted en minúsculas:
 

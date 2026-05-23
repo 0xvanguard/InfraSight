@@ -1,45 +1,13 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+
+import { DeviceCharts } from "../../../components/DeviceCharts";
 import { getDevice } from "../../../lib/api";
+import { describeSeries, formatMetricValue } from "../../../lib/format";
 import type { MetricSample } from "../../../lib/types";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
-
-function formatValue(metric: string, value: number): string {
-  if (metric.endsWith("_bytes")) return formatBytes(value);
-  if (metric.endsWith("_pct")) return `${value.toFixed(1)} %`;
-  if (metric === "host.uptime_s") return formatDuration(value);
-  return value.toFixed(2);
-}
-
-function formatBytes(bytes: number): string {
-  if (!isFinite(bytes)) return "—";
-  const units = ["B", "KiB", "MiB", "GiB", "TiB"];
-  let i = 0;
-  let v = Math.abs(bytes);
-  while (v >= 1024 && i < units.length - 1) {
-    v /= 1024;
-    i += 1;
-  }
-  return `${v.toFixed(1)} ${units[i]}`;
-}
-
-function formatDuration(seconds: number): string {
-  const s = Math.floor(seconds);
-  const days = Math.floor(s / 86400);
-  const hours = Math.floor((s % 86400) / 3600);
-  const minutes = Math.floor((s % 3600) / 60);
-  if (days > 0) return `${days}d ${hours}h`;
-  if (hours > 0) return `${hours}h ${minutes}m`;
-  return `${minutes}m`;
-}
-
-function labelString(labels: Record<string, string>): string {
-  const entries = Object.entries(labels);
-  if (entries.length === 0) return "";
-  return entries.map(([k, v]) => `${k}=${v}`).join(", ");
-}
 
 interface PageProps {
   params: { id: string };
@@ -56,11 +24,13 @@ export default async function DevicePage({ params }: PageProps) {
     throw err;
   }
 
-  // Para M1: agrupamos las muestras por (metric, labels) y nos quedamos con la
-  // última. Las gráficas históricas llegan en M2.
+  // Para el panel de "valores actuales" agrupamos las muestras por
+  // (metric, labels) y nos quedamos con la última. Las gráficas históricas
+  // las renderiza <DeviceCharts /> con su propio fetch contra /series.
   const latestByKey = new Map<string, MetricSample>();
   for (const sample of device.recent_metrics) {
-    const key = sample.metric + "|" + labelString(sample.labels);
+    const labelStr = labelString(sample.labels);
+    const key = sample.metric + "|" + labelStr;
     const existing = latestByKey.get(key);
     if (!existing || new Date(sample.ts) > new Date(existing.ts)) {
       latestByKey.set(key, sample);
@@ -90,8 +60,13 @@ export default async function DevicePage({ params }: PageProps) {
         <Card label="machine_id" value={device.machine_id} mono />
       </section>
 
+      <section className="space-y-3">
+        <h2 className="text-lg font-medium">Series temporales</h2>
+        <DeviceCharts deviceId={device.id} />
+      </section>
+
       <section>
-        <h2 className="mb-3 text-lg font-medium">Últimas métricas</h2>
+        <h2 className="mb-3 text-lg font-medium">Valores actuales</h2>
         {latest.length === 0 ? (
           <p className="rounded border border-border bg-surface p-4 text-sm text-muted">
             Aún no han llegado métricas para este dispositivo.
@@ -114,11 +89,13 @@ export default async function DevicePage({ params }: PageProps) {
                     className="border-t border-border"
                   >
                     <td className="px-4 py-2 font-mono text-xs">{m.metric}</td>
-                    <td className="px-4 py-2 font-mono text-xs text-muted">
-                      {labelString(m.labels) || "—"}
+                    <td className="px-4 py-2 text-xs text-muted">
+                      {describeSeries(m.metric, m.labels) === m.metric
+                        ? "—"
+                        : describeSeries(m.metric, m.labels)}
                     </td>
                     <td className="px-4 py-2 text-right font-mono">
-                      {formatValue(m.metric, m.value)}
+                      {formatMetricValue(m.metric, m.value)}
                     </td>
                     <td className="px-4 py-2 text-xs text-muted">{formatTs(m.ts)}</td>
                   </tr>
@@ -156,4 +133,11 @@ function Card({
 function formatTs(ts: string | null): string {
   if (!ts) return "—";
   return new Date(ts).toLocaleString("es-ES", { hour12: false });
+}
+
+function labelString(labels: Record<string, string>): string {
+  return Object.entries(labels)
+    .map(([k, v]) => `${k}=${v}`)
+    .sort()
+    .join(",");
 }

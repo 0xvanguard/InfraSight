@@ -1,4 +1,9 @@
-import type { DeviceDetail, DeviceSummary } from "./types";
+import type {
+  DeviceDetail,
+  DeviceSummary,
+  MetricSeriesResponse,
+  RangePreset,
+} from "./types";
 
 /**
  * URL base del backend.
@@ -39,5 +44,35 @@ export function listDevices(): Promise<DeviceSummary[]> {
 export function getDevice(id: string): Promise<DeviceDetail> {
   return getJson<DeviceDetail>(
     `/v1/devices/${encodeURIComponent(id)}?limit=200`,
+  );
+}
+
+export interface SeriesQuery {
+  metrics: string[];
+  range?: RangePreset;
+  from?: string; // ISO
+  to?: string; // ISO
+  interval?: string; // '30s', '5m', etc.
+}
+
+export function getDeviceSeries(
+  id: string,
+  query: SeriesQuery,
+): Promise<MetricSeriesResponse> {
+  const params = new URLSearchParams();
+  for (const m of query.metrics) {
+    params.append("metric", m);
+  }
+  if (query.from && query.to) {
+    params.set("from", query.from);
+    params.set("to", query.to);
+  } else if (query.range) {
+    params.set("range", query.range);
+  }
+  if (query.interval) {
+    params.set("interval", query.interval);
+  }
+  return getJson<MetricSeriesResponse>(
+    `/v1/devices/${encodeURIComponent(id)}/series?${params.toString()}`,
   );
 }

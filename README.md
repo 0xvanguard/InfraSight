@@ -9,10 +9,13 @@ agente ligero, las muestra en un panel web, levanta alertas técnicas basadas
 en umbrales y registra informes de intervención — pensada para equipos de TI
 y MSPs que dan soporte a parques distribuidos.
 
-**Estado:** Pre-alpha (M1 - walking skeleton). El stack levanta de extremo
-a extremo con `docker compose up`, el agente envía métricas reales y el
-dashboard las muestra. Las funcionalidades de alertas, intervenciones y
-auth de operadores llegan en milestones posteriores.
+**Estado:** Pre-alpha (M2). El stack levanta de extremo a extremo con
+`docker compose up`. El agente cubre el catálogo completo de métricas
+de v1, el backend almacena con TimescaleDB usando agregados continuos
+y políticas de retención/compresión, y el dashboard renderiza gráficas
+históricas con selector de rango (1h–30d) y auto-refresh. Las
+funcionalidades de alertas, intervenciones y auth de operadores
+llegan en milestones posteriores.
 
 ---
 
@@ -155,9 +158,12 @@ python -m infrasight_agent
 - **M1 — Walking skeleton** ✅ — el stack Compose levanta; el agente envía
   métricas reales (CPU, memoria, disco, red, uptime) y el dashboard
   muestra los dispositivos con sus últimas mediciones.
-- **M2 — Gráficas y rangos temporales** — gráficas con Recharts, queries
-  con `from`/`to`, continuous aggregates en Timescale, métricas adicionales
-  (load5/15, swap, E/S de disco).
+- **M2 — Gráficas y rangos temporales** ✅ — gráficas con Recharts y
+  selector de rango (1h/6h/24h/7d/30d) con auto-refresh, endpoint
+  `GET /v1/devices/{id}/series` con resolución adaptativa, continuous
+  aggregates a 1m y 1h en TimescaleDB, políticas de compresión
+  (>7 días) y retención (>90 días), métricas adicionales (`load5`/
+  `load15`, `swap`, `disk.io_*`).
 - **M3 — Alertas e intervenciones** — reglas de umbral, webhooks, flujo de
   informe de intervención.
 - **M4 — Hardening** — auth, tokens de enrolamiento, auto-update del
