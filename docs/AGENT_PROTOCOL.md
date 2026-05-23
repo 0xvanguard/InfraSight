@@ -1,69 +1,73 @@
-# InfraSight Agent Protocol
+# Protocolo del Agente de InfraSight
 
-This document specifies the HTTP contract between the **endpoint agent** and
-the **InfraSight backend**. Anything not specified here is undefined behaviour
-and must not be relied on.
+Este documento especifica el contrato HTTP entre el **agente endpoint** y el
+**backend de InfraSight**. Cualquier cosa no especificada aquí es
+comportamiento indefinido y no debe asumirse.
 
-- **Version:** `v1`
-- **Transport:** HTTPS (HTTP allowed only against private addresses)
-- **Encoding:** JSON, UTF-8
-- **Compression:** `Content-Encoding: gzip` accepted on agent-originated
-  requests; the agent SHOULD use it for batches > 4 KiB.
-- **Time:** all timestamps are RFC 3339 with timezone offset, UTC preferred
-  (`2026-05-23T14:32:01Z`).
+- **Versión:** `v1`
+- **Transporte:** HTTPS (HTTP solo permitido contra direcciones privadas)
+- **Codificación:** JSON, UTF-8
+- **Compresión:** se acepta `Content-Encoding: gzip` en peticiones
+  originadas por el agente; el agente DEBERÍA usarla para lotes > 4 KiB.
+- **Tiempo:** todos los timestamps son RFC 3339 con offset de zona horaria,
+  preferentemente UTC (`2026-05-23T14:32:01Z`).
 
 ---
 
-## 1. Authentication
+## 1. Autenticación
 
 | Endpoint              | Auth                                              |
 |-----------------------|---------------------------------------------------|
-| `POST /v1/enroll`     | `Authorization: Bearer <enrollment_token>` (one-time) |
+| `POST /v1/enroll`     | `Authorization: Bearer <enrollment_token>` (un solo uso) |
 | `POST /v1/heartbeat`  | `Authorization: Bearer <device_token>`            |
 | `POST /v1/metrics`    | `Authorization: Bearer <device_token>`            |
 
-The `device_token` is opaque, ≥ 32 bytes of entropy, base64url-encoded. The
-agent treats it as a secret and stores it in a file with mode `0600`.
+El `device_token` es opaco, ≥ 32 bytes de entropía, codificado en
+base64url. El agente lo trata como secreto y lo guarda en un fichero con
+modo `0600`.
 
-If a request is rejected with `401 invalid_token`, the agent MUST stop
-sending and surface the error in its logs / status output. It MUST NOT retry
-with the same token. Re-enrollment is a manual operator action.
+Si una petición se rechaza con `401 invalid_token`, el agente DEBE dejar
+de enviar y exponer el error en sus logs / salida de estado. NO DEBE
+reintentar con el mismo token. El re-enrolamiento es una acción manual del
+operador.
 
-## 2. Common response shapes
+## 2. Formatos comunes de respuesta
 
-Successful ingest endpoints return `204 No Content` with an empty body.
+Los endpoints de ingesta exitosos devuelven `204 No Content` con cuerpo
+vacío.
 
-All errors return:
+Todos los errores devuelven:
 
 ```json
 {
-  "error": "string_code",
-  "message": "human readable explanation",
+  "error": "codigo_string",
+  "message": "explicación legible para humanos",
   "retry_after_s": 30
 }
 ```
 
-`retry_after_s` is present only when the client is expected to back off.
+`retry_after_s` está presente solo cuando se espera que el cliente haga
+backoff.
 
-| HTTP | `error`                | Meaning                                     |
-|------|------------------------|---------------------------------------------|
-| 400  | `bad_request`          | Malformed JSON or schema violation          |
-| 401  | `invalid_token`        | Token unknown, expired, or revoked          |
-| 403  | `device_disabled`      | Device exists but is administratively off   |
-| 409  | `enrollment_consumed`  | Enrollment token already used               |
-| 413  | `payload_too_large`    | Batch exceeds the server limit (default 1 MiB) |
-| 422  | `unsupported_metric`   | Unknown metric name in the batch            |
-| 429  | `rate_limited`         | Too many requests; honour `retry_after_s`   |
-| 5xx  | `server_error`         | Retry with exponential backoff              |
+| HTTP | `error`                | Significado                                |
+|------|------------------------|--------------------------------------------|
+| 400  | `bad_request`          | JSON malformado o violación de esquema     |
+| 401  | `invalid_token`        | Token desconocido, expirado o revocado     |
+| 403  | `device_disabled`      | El dispositivo existe pero está desactivado administrativamente |
+| 409  | `enrollment_consumed`  | Token de enrolamiento ya usado             |
+| 413  | `payload_too_large`    | El lote excede el límite del servidor (por defecto 1 MiB) |
+| 422  | `unsupported_metric`   | Nombre de métrica desconocido en el lote   |
+| 429  | `rate_limited`         | Demasiadas peticiones; respetar `retry_after_s` |
+| 5xx  | `server_error`         | Reintentar con backoff exponencial         |
 
 ## 3. Endpoints
 
 ### 3.1 `POST /v1/enroll`
 
-Exchanges a one-time enrollment token for a long-lived device token and a
-device record.
+Intercambia un token de enrolamiento de un solo uso por un token de
+dispositivo de larga duración y un registro de dispositivo.
 
-**Request**
+**Petición**
 
 ```http
 POST /v1/enroll HTTP/1.1
@@ -80,11 +84,11 @@ Content-Type: application/json
 }
 ```
 
-`machine_id` is the contents of `/etc/machine-id`. If a device with the same
-`(org_id, machine_id)` already exists, the backend reuses that device record
-and rotates its token instead of creating a duplicate.
+`machine_id` es el contenido de `/etc/machine-id`. Si ya existe un
+dispositivo con el mismo `(org_id, machine_id)`, el backend reutiliza ese
+registro y rota su token en lugar de crear un duplicado.
 
-**Response — `200 OK`**
+**Respuesta — `200 OK`**
 
 ```json
 {
@@ -98,16 +102,16 @@ and rotates its token instead of creating a duplicate.
 }
 ```
 
-The `config` object is authoritative — the agent MUST adopt these values for
-its main loops, overriding compiled-in defaults.
+El objeto `config` es autoritativo — el agente DEBE adoptar estos valores
+para sus bucles principales, sobrescribiendo los defaults compilados.
 
 ### 3.2 `POST /v1/heartbeat`
 
-Reports liveness and current agent metadata. Sent every
-`heartbeat_interval_s`. Cheap and fixed-size; this is what determines
-`devices.status` server-side.
+Reporta liveness y los metadatos actuales del agente. Se envía cada
+`heartbeat_interval_s`. Barato y de tamaño fijo; esto es lo que determina
+`devices.status` en el lado del servidor.
 
-**Request**
+**Petición**
 
 ```http
 POST /v1/heartbeat HTTP/1.1
@@ -123,10 +127,10 @@ Content-Type: application/json
 }
 ```
 
-`queue_depth` is the number of buffered samples the agent has not yet
-flushed. The dashboard surfaces this as a health signal.
+`queue_depth` es el número de muestras buffereadas que el agente todavía
+no ha vaciado. El dashboard lo muestra como señal de salud.
 
-**Response — `200 OK`**
+**Respuesta — `200 OK`**
 
 ```json
 {
@@ -138,14 +142,15 @@ flushed. The dashboard surfaces this as a health signal.
 }
 ```
 
-The agent MUST apply any changed config values on the next loop iteration.
-Config changes propagate via heartbeat — there is no separate config push.
+El agente DEBE aplicar cualquier valor de configuración que haya cambiado
+en la siguiente iteración del bucle. Los cambios de configuración se
+propagan vía heartbeat — no hay un push de configuración aparte.
 
 ### 3.3 `POST /v1/metrics`
 
-Submits a batch of metric samples.
+Envía un lote de muestras de métricas.
 
-**Request**
+**Petición**
 
 ```http
 POST /v1/metrics HTTP/1.1
@@ -169,89 +174,93 @@ Content-Encoding: gzip
 }
 ```
 
-Rules:
+Reglas:
 
-- `batch_id` is a client-generated ULID. The server treats `(device_id,
-  batch_id)` as idempotent: replays of the same batch are accepted with
-  `204` but not double-inserted.
-- `samples` is a non-empty array, ≤ 5,000 entries per batch.
-- Unknown `metric` names cause the **whole batch** to be rejected with `422`
-  — never silently dropped.
-- `labels` is optional; when present, keys are lowercase ASCII, values are
-  short strings (≤ 64 chars). Reserved label keys: `org_id`, `device_id`,
-  `metric`, `ts`, `value`.
-- The server may close the connection if the decoded body exceeds
+- `batch_id` es un ULID generado por el cliente. El servidor trata
+  `(device_id, batch_id)` como idempotente: los reenvíos del mismo lote
+  se aceptan con `204` pero no se insertan dos veces.
+- `samples` es un array no vacío, ≤ 5.000 entradas por lote.
+- Los nombres de `metric` desconocidos provocan el rechazo del **lote
+  entero** con `422` — nunca se descartan silenciosamente.
+- `labels` es opcional; cuando está presente, las claves son ASCII en
+  minúsculas, los valores son cadenas cortas (≤ 64 chars). Claves de
+  label reservadas: `org_id`, `device_id`, `metric`, `ts`, `value`.
+- El servidor puede cerrar la conexión si el cuerpo decodificado excede
   `max_batch_bytes`.
 
-**Response — `204 No Content`** on success.
+**Respuesta — `204 No Content`** en caso de éxito.
 
-## 4. Metric catalog (v1)
+## 4. Catálogo de métricas (v1)
 
-The agent MUST emit only metrics from this catalog. Adding a new metric is a
-protocol change and bumps the minor version.
+El agente DEBE emitir solo métricas de este catálogo. Añadir una nueva
+métrica es un cambio de protocolo y sube la versión menor.
 
-| Metric                  | Unit         | Required labels         | Notes                      |
-|-------------------------|--------------|-------------------------|----------------------------|
-| `cpu.usage_pct`         | percent 0-100| —                       | overall, all cores         |
-| `cpu.load1`             | float        | —                       | 1-min load average         |
-| `cpu.load5`             | float        | —                       | 5-min load average         |
-| `cpu.load15`            | float        | —                       | 15-min load average        |
-| `mem.used_bytes`        | bytes        | —                       |                            |
-| `mem.available_bytes`   | bytes        | —                       |                            |
-| `swap.used_bytes`       | bytes        | —                       |                            |
-| `disk.used_bytes`       | bytes        | `mountpoint`            | one sample per mountpoint  |
-| `disk.used_pct`         | percent      | `mountpoint`            |                            |
-| `disk.io_read_bytes`    | bytes/s      | `device`                | rate, derived              |
-| `disk.io_write_bytes`   | bytes/s      | `device`                | rate, derived              |
-| `net.rx_bytes`          | bytes/s      | `iface`                 | rate, derived              |
-| `net.tx_bytes`          | bytes/s      | `iface`                 | rate, derived              |
-| `host.uptime_s`         | seconds      | —                       |                            |
+| Métrica                 | Unidad        | Labels requeridas       | Notas                       |
+|-------------------------|---------------|-------------------------|-----------------------------|
+| `cpu.usage_pct`         | porcentaje 0-100 | —                    | global, todos los cores     |
+| `cpu.load1`             | float         | —                       | load average a 1 minuto     |
+| `cpu.load5`             | float         | —                       | load average a 5 minutos    |
+| `cpu.load15`            | float         | —                       | load average a 15 minutos   |
+| `mem.used_bytes`        | bytes         | —                       |                             |
+| `mem.available_bytes`   | bytes         | —                       |                             |
+| `swap.used_bytes`       | bytes         | —                       |                             |
+| `disk.used_bytes`       | bytes         | `mountpoint`            | una muestra por mountpoint  |
+| `disk.used_pct`         | porcentaje    | `mountpoint`            |                             |
+| `disk.io_read_bytes`    | bytes/s       | `device`                | ratio, derivado             |
+| `disk.io_write_bytes`   | bytes/s       | `device`                | ratio, derivado             |
+| `net.rx_bytes`          | bytes/s       | `iface`                 | ratio, derivado             |
+| `net.tx_bytes`          | bytes/s       | `iface`                 | ratio, derivado             |
+| `host.uptime_s`         | segundos      | —                       |                             |
 
-The agent SHOULD skip pseudo-filesystems (`tmpfs`, `devtmpfs`, `overlay`,
-…) and loopback / docker bridge network interfaces by default. This list is
-configurable via `agent.toml`.
+El agente DEBERÍA omitir pseudo-sistemas de ficheros (`tmpfs`,
+`devtmpfs`, `overlay`, …) e interfaces de red de loopback / bridge de
+docker por defecto. Esta lista es configurable en `agent.toml`.
 
-## 5. Retry, backoff, and buffering
+## 5. Reintentos, backoff y buffering
 
-- On `5xx` or network error: retry with exponential backoff starting at 1s,
-  doubling, capped at 60s, jitter ±20%.
-- On `429`: sleep for exactly `retry_after_s` before any further requests.
-- On `4xx` other than `429`: do **not** retry the same payload. Log and drop.
-- While the backend is unreachable, the agent buffers samples in a bounded
-  on-disk queue (FIFO, drop-oldest when full). Default cap: 1 hour of
-  samples or 10 MiB, whichever is smaller. Buffered samples are flushed in
-  original order on reconnect.
-- Heartbeats are never buffered; if a heartbeat fails, the next scheduled
-  one supersedes it.
+- En caso de `5xx` o error de red: reintentar con backoff exponencial
+  empezando en 1s, doblando, con tope en 60s, jitter ±20%.
+- En caso de `429`: dormir exactamente `retry_after_s` antes de
+  cualquier petición posterior.
+- En caso de `4xx` distinto de `429`: **no** reintentar el mismo
+  payload. Loguear y descartar.
+- Mientras el backend no sea alcanzable, el agente bufferea muestras en
+  una cola en disco acotada (FIFO, descarta los más antiguos cuando se
+  llena). Tope por defecto: 1 hora de muestras o 10 MiB, lo que sea
+  menor. Las muestras buffereadas se vacían en orden original al
+  reconectar.
+- Los heartbeats nunca se bufferean; si un heartbeat falla, el siguiente
+  programado lo reemplaza.
 
-## 6. Versioning
+## 6. Versionado
 
-The path prefix `/v1` is part of the contract. Backwards-incompatible
-changes (removed fields, changed semantics, new required fields) require a
-`/v2` prefix and a deprecation window of at least one minor agent release.
+El prefijo de ruta `/v1` es parte del contrato. Los cambios
+incompatibles hacia atrás (campos eliminados, semántica cambiada,
+nuevos campos requeridos) requieren un prefijo `/v2` y una ventana de
+deprecación de al menos una release menor del agente.
 
-Backwards-compatible additions (new optional fields, new metrics added to
-the catalog, new error codes) are allowed within `/v1` and do not require an
-agent update — but agents MUST tolerate unknown fields in responses without
-failing.
+Las adiciones compatibles hacia atrás (nuevos campos opcionales, nuevas
+métricas añadidas al catálogo, nuevos códigos de error) se permiten
+dentro de `/v1` y no requieren actualizar el agente — pero los agentes
+DEBEN tolerar campos desconocidos en las respuestas sin fallar.
 
-## 7. Reference: minimal agent loop (pseudo-code)
+## 7. Referencia: bucle mínimo del agente (pseudo-código)
 
 ```python
 def run(cfg):
     token = cfg.device_token
     while True:
-        sample_batch = collect()                  # psutil + label assembly
+        sample_batch = collect()                  # psutil + ensamblado de labels
         try:
             post_metrics(token, sample_batch)
         except Retryable as e:
             buffer.push(sample_batch)
         except Fatal as e:
-            log.error("fatal ingest error: %s", e)
+            log.error("error fatal de ingesta: %s", e)
             return
         sleep(cfg.collect_interval_s)
 ```
 
-The real loop additionally runs the heartbeat on its own schedule, drains
-the buffer when ingest succeeds, and handles config updates from heartbeat
-responses.
+El bucle real ejecuta además el heartbeat con su propia planificación,
+vacía el buffer cuando la ingesta tiene éxito, y maneja las
+actualizaciones de configuración de las respuestas de heartbeat.
